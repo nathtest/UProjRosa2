@@ -1,0 +1,5 @@
+#include "ConvertExcelToDataTableG01AddedPotentCategoryTableTableRowStruct.h"
+
+FConvertExcelToDataTableG01AddedPotentCategoryTableTableRowStruct::FConvertExcelToDataTableG01AddedPotentCategoryTableTableRowStruct() {
+}
+

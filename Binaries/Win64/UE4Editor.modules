@@ -1,0 +1,10 @@
+{
+	"BuildId": "2a8e0a06-66e4-4bf8-9a8a-45deb24a44c7",
+	"Modules": 
+	{
+		"Game": "UE4Editor-Game.dll",
+		"RS2re": "UE4Editor-RS2re.dll",
+		"SQEXSEAD": "UE4Editor-SQEXSEAD.dll",
+		"SQEXSEADUtils": "UE4Editor-SQEXSEADUtils.dll"
+	}
+}

@@ -1,0 +1,603 @@
+// Copyright 2021-2024 Naotsun. All Rights Reserved.
+
+#include "PulldownBuilder/DetailCustomizations/PulldownStructDetail.h"
+#include "PulldownBuilder/Assets/PulldownContents.h"
+#include "PulldownBuilder/Utilities/PulldownBuilderUtils.h"
+#include "PulldownBuilder/Utilities/PulldownBuilderAppearanceSettings.h"
+#include "PulldownBuilder/Widgets/SPulldownSelectorComboButton.h"
+#include "PulldownBuilder/Types/PulldownStructType.h"
+#include "PulldownBuilder/Types/PulldownRow.h"
+#include "PulldownBuilder/Types/StructContainer.h"
+#include "PulldownStruct/PulldownStructBase.h"
+#include "DetailWidgetRow.h"
+#include "PropertyEditorModule.h"
+#include "PropertyHandle.h"
+#include "IDetailChildrenBuilder.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "Modules/ModuleManager.h"
+#if UE_5_01_OR_LATER
+#include "Styling/AppStyle.h"
+#else
+#include "EditorStyleSet.h"
+#endif
+#include "Editor.h"
+
+#define LOCTEXT_NAMESPACE "PulldownStructDetail"
+
+namespace PulldownBuilder
+{
+	namespace PulldownStructDetailDefine
+	{
+		static constexpr int32 NumOfStandardPulldownStructProperties = 2;
+		static const FName MovieSceneSignedObjectClassName = TEXT("MovieSceneSignedObject");
+	}
+	
+	void FPulldownStructDetail::Register(const FPulldownStructType& StructType)
+	{
+		if (!StructType.IsValid())
+		{
+			UE_LOG(LogPulldownBuilder, Warning, TEXT("You have tried to register an empty struct..."));
+			return;
+		}
+	
+		auto& PropertyEditorModule = FPulldownBuilderUtils::GetPropertyEditorModule();
+		PropertyEditorModule.RegisterCustomPropertyTypeLayout(
+			*StructType,
+			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FPulldownStructDetail::MakeInstance)
+		);
+	}
+
+	void FPulldownStructDetail::Unregister(const FPulldownStructType& StructType)
+	{
+		if (!StructType.IsValid())
+		{
+			UE_LOG(LogPulldownBuilder, Warning, TEXT("You have tried to unregister an empty struct..."));
+			return;
+		}
+
+		auto& PropertyEditorModule = FPulldownBuilderUtils::GetPropertyEditorModule();
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout(
+			*StructType
+		);
+	}
+
+	TSharedRef<IPropertyTypeCustomization> FPulldownStructDetail::MakeInstance()
+	{
+		return MakeShared<FPulldownStructDetail>();
+	}
+
+	void FPulldownStructDetail::CustomizeHeader(TSharedRef<IPropertyHandle> InStructPropertyHandle, FDetailWidgetRow& HeaderRow, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
+	{
+		StructPropertyHandle = InStructPropertyHandle;
+		check(StructPropertyHandle.IsValid());
+
+		// Scans the properties of the struct for the property handle of FPulldownStructBase::SelectedValue.
+		uint32 NumChildProperties;
+		StructPropertyHandle->GetNumChildren(NumChildProperties);
+		for (uint32 Index = 0; Index < NumChildProperties; Index++)
+		{
+			if (SelectedValueHandle.IsValid() && SearchableObjectHandle.IsValid())
+			{
+				break;
+			}
+			
+			const TSharedPtr<IPropertyHandle> ChildPropertyHandle = StructPropertyHandle->GetChildHandle(Index);
+			if (ChildPropertyHandle.IsValid())
+			{
+#if UE_4_25_OR_LATER
+				if (const FProperty* ChildProperty = ChildPropertyHandle->GetProperty())
+#else
+				if (const UProperty* ChildProperty = ChildPropertyHandle->GetProperty())
+#endif
+				{
+					if (ChildProperty->GetFName() == GET_MEMBER_NAME_CHECKED(FPulldownStructBase, SelectedValue))
+					{
+						SelectedValueHandle = ChildPropertyHandle;
+					}
+					else if (ChildProperty->GetFName() == FPulldownStructBase::SearchableObjectPropertyName)
+					{
+						SearchableObjectHandle = ChildPropertyHandle;
+					}
+				}
+			}
+		}
+
+		// Do not registers structures other than FPulldownStructBase in this detail customization.
+		check(SelectedValueHandle.IsValid() && SearchableObjectHandle.IsValid());
+	
+		HeaderRow.NameContent()
+		[
+			StructPropertyHandle->CreatePropertyNameWidget()
+		];
+
+		// If the property is only FPulldownStructBase::SelectedValue, displays it inline.
+		if (NumChildProperties == PulldownStructDetailDefine::NumOfStandardPulldownStructProperties && UPulldownBuilderAppearanceSettings::Get().bShouldInlineDisplayWhenSingleProperty)
+		{
+			HeaderRow.ValueContent()
+				.MinDesiredWidth(500)
+				[
+					GenerateSelectableValuesWidget()
+				];
+
+			HeaderRow.CopyAction(CreateSelectedValueCopyAction());
+			HeaderRow.PasteAction(CreateSelectedValuePasteAction());
+			AddBrowseSourceAssetAction(HeaderRow);
+			
+			RebuildPulldown();
+		}
+	}
+
+	void FPulldownStructDetail::CustomizeChildren(TSharedRef<IPropertyHandle> InStructPropertyHandle, IDetailChildrenBuilder& StructBuilder, IPropertyTypeCustomizationUtils& StructCustomizationUtils)
+	{
+		check(StructPropertyHandle.IsValid() && SelectedValueHandle.IsValid());
+
+		// Adds child properties other than FPulldownStructBase::SelectedValue to the StructBuilder.
+		uint32 NumChildProperties;
+		StructPropertyHandle->GetNumChildren(NumChildProperties);
+		for (uint32 Index = 0; Index < NumChildProperties; Index++)
+		{
+			const TSharedPtr<IPropertyHandle> ChildPropertyHandle = StructPropertyHandle->GetChildHandle(Index);
+			if (ChildPropertyHandle.IsValid())
+			{
+#if UE_4_25_OR_LATER
+				if (FProperty* ChildProperty = ChildPropertyHandle->GetProperty())
+#else
+				if (UProperty* ChildProperty = ChildPropertyHandle->GetProperty())
+#endif
+				{
+					if (!IsCustomizationTarget(ChildProperty))
+					{
+						StructBuilder.AddProperty(ChildPropertyHandle.ToSharedRef());
+						ChildPropertyHandle->SetOnPropertyValueChanged(
+							FSimpleDelegate::CreateSP(this, &FPulldownStructDetail::RebuildPulldown)
+						);
+					}
+				}
+			}
+		}
+
+		// If there are multiple properties, do not displays inline.
+		if (NumChildProperties > PulldownStructDetailDefine::NumOfStandardPulldownStructProperties || !UPulldownBuilderAppearanceSettings::Get().bShouldInlineDisplayWhenSingleProperty)
+		{
+			AddCustomRowBeforeSelectedValue(StructBuilder);
+			
+			FDetailWidgetRow& DetailWidgetRow = StructBuilder.AddCustomRow(
+				FText::FromName(GET_MEMBER_NAME_CHECKED(FPulldownStructBase, SelectedValue))
+			)
+				.CopyAction(CreateSelectedValueCopyAction())
+				.PasteAction(CreateSelectedValuePasteAction())
+				.NameContent()
+				[
+					SelectedValueHandle->CreatePropertyNameWidget()
+				]
+				.ValueContent()
+				.MinDesiredWidth(500)
+				[
+					GenerateSelectableValuesWidget()
+				];
+
+			AddBrowseSourceAssetAction(DetailWidgetRow);
+			
+			AddCustomRowAfterSelectedValue(StructBuilder);
+
+			RebuildPulldown();
+		}
+	}
+
+	void FPulldownStructDetail::RebuildPulldown()
+	{
+		check(StructPropertyHandle.IsValid() && SelectedValueHandle.IsValid());
+
+		// Finds PulldownContents in the property struct and build a list of strings to display in the pull-down menu.
+		void* StructValueData = nullptr;
+		const FPropertyAccess::Result Result = StructPropertyHandle->GetValueData(StructValueData);
+		if (Result == FPropertyAccess::Success)
+		{	
+			SelectableValues = GenerateSelectableValues();
+		}
+		// Empties the list if data acquisition fails or if multiple selections are made.
+		else
+		{
+			OnMultipleSelected();
+			return;
+		}
+
+		UpdateSearchableObject();
+		RefreshPulldownWidget();
+	}
+
+	void FPulldownStructDetail::RefreshPulldownWidget()
+	{
+		check(SelectedValueHandle.IsValid());
+	
+		// Checks if the currently set string is included in the constructed list.
+		FName CurrentSelectedValue;
+		SelectedValueHandle->GetValue(CurrentSelectedValue);
+
+		TSharedPtr<FPulldownRow> SelectedItem = FindSelectableValueByName(CurrentSelectedValue);
+		if (!SelectedItem.IsValid())
+		{
+			SetPropertyValueSafe(
+				SelectedValueHandle.ToSharedRef(),
+				[](const TSharedRef<IPropertyHandle>& PropertyHandle)
+				{
+					PropertyHandle->SetValue(NAME_None);
+				}
+			);
+			SelectedItem = FindSelectableValueByName(NAME_None);
+		}
+
+		if (SelectedValueWidget.IsValid())
+		{
+			SelectedValueWidget->RefreshList();
+			SelectedValueWidget->SetSelectedItem(SelectedItem);
+		}
+	}
+
+	TArray<TSharedPtr<FPulldownRow>> FPulldownStructDetail::GenerateSelectableValues()
+	{
+		check(StructPropertyHandle.IsValid());
+	
+#if UE_4_25_OR_LATER
+		if (const auto* StructProperty = CastField<FStructProperty>(StructPropertyHandle->GetProperty()))
+#else
+		if (const auto* StructProperty = Cast<UStructProperty>(StructPropertyHandle->GetProperty()))
+#endif
+		{
+			TArray<UObject*> OuterObjects;
+			StructPropertyHandle->GetOuterObjects(OuterObjects);
+
+			void* RawData;
+			const FPropertyAccess::Result Result = StructPropertyHandle->GetValueData(RawData);
+			if (Result != FPropertyAccess::Success)
+			{
+				RawData = nullptr;
+			}
+			
+			return FPulldownBuilderUtils::GetPulldownRowsFromStruct(
+				StructProperty->Struct,
+				OuterObjects,
+				FStructContainer(StructProperty->Struct, static_cast<uint8*>(RawData))
+			);
+		}
+
+		return FPulldownBuilderUtils::GetEmptyPulldownRows();
+	}
+
+	void FPulldownStructDetail::OnMultipleSelected()
+	{
+		SelectableValues.Reset();
+	}
+
+#if UE_4_25_OR_LATER
+	bool FPulldownStructDetail::IsCustomizationTarget(FProperty* InProperty) const
+#else
+	bool FPulldownStructDetail::IsCustomizationTarget(UProperty* InProperty) const
+#endif
+	{
+		check(InProperty != nullptr);
+		return (
+			(InProperty->GetFName() == GET_MEMBER_NAME_CHECKED(FPulldownStructBase, SelectedValue)) ||
+			(InProperty->GetFName() == FPulldownStructBase::SearchableObjectPropertyName)
+		);
+	}
+
+	UPulldownContents* FPulldownStructDetail::GetRelatedPulldownContents() const
+	{
+		if (const UScriptStruct* RelatedPulldownStructType = GetRelatedPulldownStructType() )
+		{
+			return FPulldownBuilderUtils::FindPulldownContentsByStruct(RelatedPulldownStructType);
+		}
+
+		return nullptr;
+	}
+
+	const UScriptStruct* FPulldownStructDetail::GetRelatedPulldownStructType() const
+	{
+		check(StructPropertyHandle.IsValid());
+		
+#if UE_4_25_OR_LATER
+		if (const auto* StructProperty = CastField<FStructProperty>(StructPropertyHandle->GetProperty()))
+#else
+		if (const auto* StructProperty = Cast<UStructProperty>(StructPropertyHandle->GetProperty()))
+#endif
+		{
+			return StructProperty->Struct;
+		}
+
+		return nullptr;
+	}
+
+	TSharedRef<SWidget> FPulldownStructDetail::GenerateSelectableValuesWidget()
+	{
+		return
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.HAlign(HAlign_Left)
+			[
+				SAssignNew(SelectedValueWidget, SPulldownSelectorComboButton)
+				.ListItemsSource(&SelectableValues)
+				.GetSelection(this, &FPulldownStructDetail::GetSelection)
+				.HeightOverride(this, &FPulldownStructDetail::GetIndividualPanelHeight)
+				.WidthOverride(this, &FPulldownStructDetail::GetIndividualPanelWidth)
+				.OnSelectionChanged(this, &FPulldownStructDetail::OnSelectedValueChanged)
+				.OnComboBoxOpened(this, &FPulldownStructDetail::RebuildPulldown)
+			];
+	}
+
+	void FPulldownStructDetail::SetPropertyValueSafe(
+		const TSharedRef<IPropertyHandle>& TargetPropertyHandle,
+		const TFunction<void(const TSharedRef<IPropertyHandle>& PropertyHandle)>& Predicate
+	)
+	{
+		auto IsMovieSceneClass = [](const UClass* TestClass) -> bool
+		{
+			const UClass* Class = TestClass;
+			while (IsValid(Class))
+			{
+				if (Class->GetFName() == PulldownStructDetailDefine::MovieSceneSignedObjectClassName)
+				{
+					return true;
+				}
+
+				Class = Class->GetSuperClass();
+			}
+
+			return false;
+		};
+			
+		auto GetOuterBaseClass = [](const TSharedRef<IPropertyHandle>& PropertyHandle) -> const UClass*
+		{
+#if UE_5_00_OR_LATER
+			return PropertyHandle->GetOuterBaseClass();
+#else
+			TArray<UObject*> OuterObjects;
+			PropertyHandle->GetOuterObjects(OuterObjects);
+			if (OuterObjects.IsValidIndex(0))
+			{
+				return OuterObjects[0]->GetClass();
+			}
+
+			return nullptr;
+#endif
+		};
+			
+		const UClass* OuterBaseClass = GetOuterBaseClass(TargetPropertyHandle);
+		if (IsMovieSceneClass(OuterBaseClass))
+		{
+			check(IsValid(GEditor));
+			TWeakPtr<IPropertyHandle> WeakPropertyHandle = TargetPropertyHandle;
+			GEditor->GetTimerManager()->SetTimerForNextTick(
+				[WeakPropertyHandle, Predicate]()
+				{
+					if (WeakPropertyHandle.IsValid())
+					{
+						Predicate(WeakPropertyHandle.Pin().ToSharedRef());
+					}
+				}
+			);
+		}
+		else
+		{
+			Predicate(TargetPropertyHandle);
+		}
+	}
+
+	TSharedPtr<FPulldownRow> FPulldownStructDetail::FindSelectableValueByName(const FName& InName) const
+	{
+		const TSharedPtr<FPulldownRow>* FoundItem = SelectableValues.FindByPredicate(
+			[&](const TSharedPtr<FPulldownRow>& Item)
+			{
+				return (Item.IsValid() && Item->SelectedValue == InName.ToString());
+			});
+
+		return (FoundItem != nullptr ? *FoundItem : nullptr);
+	}
+
+	TSharedPtr<FPulldownRow> FPulldownStructDetail::GetSelection() const
+	{
+		FName SelectedValue = NAME_None;
+		if (SelectedValueHandle.IsValid())
+		{
+			SelectedValueHandle->GetValue(SelectedValue);
+		}
+
+		return FindSelectableValueByName(SelectedValue);
+	}
+
+	float FPulldownStructDetail::GetIndividualPanelHeight() const
+	{
+		if (const UPulldownContents* PulldownContents = GetRelatedPulldownContents())
+		{
+			const TOptional<FVector2D>& IndividualPanelSize = PulldownContents->GetIndividualPanelSize();
+			if (IndividualPanelSize.IsSet())
+			{
+				return IndividualPanelSize.GetValue().Y;
+			}
+		}
+
+		return 0.f;
+	}
+
+	float FPulldownStructDetail::GetIndividualPanelWidth() const
+	{
+		if (const UPulldownContents* PulldownContents = GetRelatedPulldownContents())
+		{
+			const TOptional<FVector2D>& IndividualPanelSize = PulldownContents->GetIndividualPanelSize();
+			if (IndividualPanelSize.IsSet())
+			{
+				return IndividualPanelSize.GetValue().X;
+			}
+		}
+
+		return 0.f;
+	}
+
+	void FPulldownStructDetail::OnSelectedValueChanged(TSharedPtr<FPulldownRow> SelectedItem, ESelectInfo::Type SelectInfo)
+	{
+		check(SelectedValueHandle.IsValid());
+		
+		if (!SelectedItem.IsValid())
+		{
+			return;
+		}
+		
+		const FName NewSelectedValue = *SelectedItem->SelectedValue;
+		FName OldSelectedValue;
+		SelectedValueHandle->GetValue(OldSelectedValue);
+		if (NewSelectedValue != OldSelectedValue)
+		{
+			SelectedValueHandle->SetValue(NewSelectedValue);
+		}
+	}
+
+	void FPulldownStructDetail::UpdateSearchableObject()
+	{
+		check(SearchableObjectHandle.IsValid());
+
+		const UScriptStruct* RelatedPulldownStructType = GetRelatedPulldownStructType();
+		if (!IsValid(RelatedPulldownStructType))
+		{
+			return;
+		}
+
+		if (!FPulldownBuilderUtils::HasPulldownStructPostSerialize(RelatedPulldownStructType))
+		{
+			return;
+		}
+		
+		UObject* SearchableObject;
+		if (SearchableObjectHandle->GetValue(SearchableObject) != FPropertyAccess::Success)
+		{
+			SearchableObject = nullptr;
+		}
+
+		UObject* NewSearchableObject = nullptr;
+		if (UPulldownContents* RelatedPulldownContents = GetRelatedPulldownContents())
+		{
+			if (!IsValid(SearchableObject) || (SearchableObject != RelatedPulldownContents))
+			{
+				NewSearchableObject = RelatedPulldownContents;
+			}
+		}
+		if (IsValid(NewSearchableObject))
+		{
+			TWeakObjectPtr<UObject> WeakNewSearchableObject = NewSearchableObject;
+			SetPropertyValueSafe(
+				SearchableObjectHandle.ToSharedRef(),
+				[WeakNewSearchableObject](const TSharedRef<IPropertyHandle>& PropertyHandle)
+				{
+					if (WeakNewSearchableObject.IsValid())
+					{
+						PropertyHandle->SetValue(WeakNewSearchableObject.Get());
+					}
+				}
+			);
+		}
+	}
+
+	FUIAction FPulldownStructDetail::CreateSelectedValueCopyAction()
+	{
+		return FUIAction
+		(
+			FExecuteAction::CreateSP(this, &FPulldownStructDetail::OnSelectedValueCopyAction),
+			FCanExecuteAction::CreateSP(this, &FPulldownStructDetail::CanSelectedValueCopyAction)
+		);
+	}
+
+	FUIAction FPulldownStructDetail::CreateSelectedValuePasteAction()
+	{
+		return FUIAction
+		(
+			FExecuteAction::CreateSP(this, &FPulldownStructDetail::OnSelectedValuePasteAction),
+			FCanExecuteAction::CreateSP(this, &FPulldownStructDetail::CanSelectedValuePasteAction)
+		);
+	}
+
+	FUIAction FPulldownStructDetail::CreateBrowseSourceAssetAction()
+	{
+		return FUIAction
+		(
+			FExecuteAction::CreateSP(this, &FPulldownStructDetail::OnBrowseSourceAssetAction),
+			FCanExecuteAction::CreateSP(this, &FPulldownStructDetail::CanBrowseSourceAssetAction)
+		);
+	}
+
+	void FPulldownStructDetail::AddBrowseSourceAssetAction(FDetailWidgetRow& DetailWidgetRow)
+	{
+		DetailWidgetRow.AddCustomContextMenuAction(
+			CreateBrowseSourceAssetAction(),
+			LOCTEXT("OpenSourceAssetLabel", "Open Source Asset"),
+			LOCTEXT("OpenSourceAssetTooltip", "Open the underlying pulldown contents asset for the pin's pulldown struct."),
+			FSlateIcon(
+#if UE_5_01_OR_LATER
+				FAppStyle::GetAppStyleSetName(),
+#else
+				FEditorStyle::GetStyleSetName(),
+#endif
+				TEXT("SystemWideCommands.FindInContentBrowser")
+			)
+		);
+	}
+
+	void FPulldownStructDetail::OnSelectedValueCopyAction()
+	{
+		if (!SelectedValueHandle.IsValid())
+		{
+			return;
+		}
+
+		FName SelectedValue;
+		SelectedValueHandle->GetValue(SelectedValue);
+
+		FPlatformApplicationMisc::ClipboardCopy(*SelectedValue.ToString());
+	}
+
+	void FPulldownStructDetail::OnSelectedValuePasteAction()
+	{
+		if (!SelectedValueWidget.IsValid())
+		{
+			return;
+		}
+	
+		FName PastedText;
+		{
+			FString ClipboardString;
+			FPlatformApplicationMisc::ClipboardPaste(ClipboardString);
+			PastedText = *ClipboardString;
+		}
+
+		const TSharedPtr<FPulldownRow> SelectedItem = FindSelectableValueByName(PastedText);
+		if (SelectedItem.IsValid())
+		{
+			SelectedValueWidget->SetSelectedItem(SelectedItem);
+		}
+	}
+
+	void FPulldownStructDetail::OnBrowseSourceAssetAction()
+	{
+		if (UPulldownContents* PulldownContents = GetRelatedPulldownContents())
+		{
+			FPulldownBuilderUtils::OpenPulldownContents(PulldownContents);
+		}
+	}
+
+	bool FPulldownStructDetail::CanSelectedValueCopyAction() const
+	{
+		return true;
+	}
+
+	bool FPulldownStructDetail::CanSelectedValuePasteAction() const
+	{
+		check(StructPropertyHandle.IsValid());
+	
+		return StructPropertyHandle->IsEditable();
+	}
+
+	bool FPulldownStructDetail::CanBrowseSourceAssetAction() const
+	{
+		return IsValid(GetRelatedPulldownContents());
+	}
+}
+
+#undef LOCTEXT_NAMESPACE

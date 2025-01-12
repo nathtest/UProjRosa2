@@ -1,0 +1,9 @@
+{
+	"BuildId": "2a8e0a06-66e4-4bf8-9a8a-45deb24a44c7",
+	"Modules": 
+	{
+		"PulldownBuilder": "UE4Editor-PulldownBuilder.dll",
+		"PulldownStruct": "UE4Editor-PulldownStruct.dll",
+		"PulldownStructNodes": "UE4Editor-PulldownStructNodes.dll"
+	}
+}

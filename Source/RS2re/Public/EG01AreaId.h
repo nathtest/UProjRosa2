@@ -1,0 +1,26 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "EG01AreaId.generated.h"
+
+UENUM(BlueprintType)
+enum class EG01AreaId : uint8 {
+    NONE,
+    AREA_NORTHVARENNES,
+    AREA_SOUTHVARENNES,
+    AREA_RUDONN,
+    AREA_NAZELLE,
+    AREA_FROZENSEA,
+    AREA_NORTHLONGUITTE,
+    AREA_SOUTHLONGUITTE,
+    AREA_CUMBERLAND,
+    AREA_COMRUNEISLAND,
+    AREA_STEPPE,
+    AREA_SAVANNAH,
+    AREA_MERU,
+    AREA_SARAMAT,
+    AREA_YAOUDA,
+    AREA_TORRANCE,
+    AREA_AUSTRAS,
+    NUM,
+};
+

@@ -1,0 +1,47 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "EG01MenuFormationAutoSortCategoryEnum.generated.h"
+
+UENUM(BlueprintType)
+enum class EG01MenuFormationAutoSortCategoryEnum : uint8 {
+    NoCompare,
+    IsEmperor,
+    IsEquipShildOrGauder,
+    MostAttackDifencive,
+    MostMagicDifencive,
+    MostOffensive,
+    Fastest,
+    MostHP,
+    MostMagic,
+    LowestAttackDifencive,
+    LowestMagicDifencive,
+    LowestOffensive,
+    Slowest,
+    LowestHP,
+    LowestMagic,
+    SpecialitySword,
+    SpecialityShortSword,
+    SpecialityGrandSword,
+    SpecialitySpear,
+    SpecialityAxe,
+    SpecialityClub,
+    SpecialityBow,
+    SpecialityPyrology,
+    SpecialityHydrology,
+    SpecialityTerrology,
+    SpecialityAerology,
+    SpecialityCosmology,
+    SpecialityUmbrology,
+    Num,
+    BeginSpecialWeapon = SpecialitySword,
+    EndSpecialWeapon = SpecialityBow,
+    BeginSpecialSpell = SpecialityPyrology,
+    EndSpecialSpell = SpecialityUmbrology,
+    BeginCompareValue = MostAttackDifencive,
+    EndCompareValue = LowestMagic,
+    BeginCalcMaxCompare = MostAttackDifencive,
+    EndCalcMaxCompare = MostMagic,
+    BeginCalcMinCompare = LowestAttackDifencive,
+    EndCalcMinCompare = LowestMagic,
+};
+

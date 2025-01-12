@@ -1,0 +1,5 @@
+#include "ConvertExcelToDataTableG01AddedPotentBaseTableTableRowStruct.h"
+
+FConvertExcelToDataTableG01AddedPotentBaseTableTableRowStruct::FConvertExcelToDataTableG01AddedPotentBaseTableTableRowStruct() {
+}
+

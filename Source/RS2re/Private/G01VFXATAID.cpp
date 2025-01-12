@@ -1,0 +1,5 @@
+#include "G01VFXATAID.h"
+
+FG01VFXATAID::FG01VFXATAID() {
+}
+

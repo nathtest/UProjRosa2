@@ -1,0 +1,31 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "EAIState.generated.h"
+
+UENUM(BlueprintType)
+enum class EAIState : uint8 {
+    AI_IDLE,
+    AI_FOLLOW_MOVE,
+    AI_PATH_MOVE,
+    AI_TALK_NOW,
+    AI_LOSE_SIGHT,
+    AI_RETURN_FROM_BATTLE,
+    AI_RETURN_TO_POSITION,
+    AI_LANDING,
+    AI_RANDOM_MOVE,
+    AI_RETURN_FROM_EVENT,
+    AI_INTIMIDATION,
+    AI_STANDING,
+    AI_ESCAPED,
+    AI_AMBUSH,
+    AI_TURNBACK,
+    AI_AMBUSHBREAK,
+    AI_ATTACK,
+    AI_TALK_START,
+    AI_TALK_END,
+    AI_HEARING_NOISE,
+    AI_FOLLOW_MOVE_WAIT,
+    AI_AMBUSHBREAK_COLLISION,
+    AI_AFFTER_ENCOUNT_ACTION,
+};
+

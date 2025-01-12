@@ -1,0 +1,5 @@
+#include "G01VFXWDID.h"
+
+FG01VFXWDID::FG01VFXWDID() {
+}
+

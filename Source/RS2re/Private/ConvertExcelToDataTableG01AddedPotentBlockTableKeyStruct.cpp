@@ -1,0 +1,5 @@
+#include "ConvertExcelToDataTableG01AddedPotentBlockTableKeyStruct.h"
+
+FConvertExcelToDataTableG01AddedPotentBlockTableKeyStruct::FConvertExcelToDataTableG01AddedPotentBlockTableKeyStruct() {
+}
+

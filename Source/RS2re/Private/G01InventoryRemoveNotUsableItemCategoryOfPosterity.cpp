@@ -1,0 +1,5 @@
+#include "G01InventoryRemoveNotUsableItemCategoryOfPosterity.h"
+
+FG01InventoryRemoveNotUsableItemCategoryOfPosterity::FG01InventoryRemoveNotUsableItemCategoryOfPosterity() {
+}
+
