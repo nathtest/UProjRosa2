@@ -144,7 +144,7 @@ obj/
 !/Saved/Logs/keep.txt
 
 Cooking/*
-
+!/Plugins/**/Content/**
 
 /Engine/Programs/UnrealBuildTool/**
 /LocalBuilds/
